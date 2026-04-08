@@ -1,0 +1,40 @@
+name: depvuln_env
+version: "1.0.0"
+description: >
+  Dependency Vulnerability Triage environment. An AI agent plays a security
+  engineer who must analyze CVEs in a project's dependency tree, assess real
+  severity in context, and recommend appropriate remediation actions. Three
+  tasks range from a single clear CVE (easy) to transitive dependency conflicts
+  with upgrade breakage (hard).
+
+tasks:
+  - name: single_cve
+    difficulty: easy
+    description: One critical CVE in a payment API. Clear fix available.
+  - name: multi_cve_triage
+    difficulty: medium
+    description: Five deps, five CVEs. Some are false positives in context.
+  - name: dependency_hell
+    difficulty: hard
+    description: Transitive deps with upgrade conflicts. Fixing one breaks another.
+
+action:
+  type: depvuln_env.models.DepVulnAction
+  description: >
+    Structured command with parameters. Commands: analyze_cve, check_upgrade,
+    assess_severity, recommend_action, submit_report.
+
+observation:
+  type: depvuln_env.models.DepVulnObservation
+  description: >
+    Project context (info, deps, CVEs, dep tree) plus per-step feedback
+    (analysis results, upgrade info, assessment/recommendation feedback).
+
+tags:
+  - openenv
+  - security
+  - vulnerability
+  - triage
+  - dependency-management
+
+license: BSD-3-Clause

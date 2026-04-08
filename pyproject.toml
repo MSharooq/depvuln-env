@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "depvuln-env"
+version = "1.0.0"
+description = "Dependency Vulnerability Triage - OpenEnv Environment"
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core>=0.2.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+]
+
+[project.scripts]
+server = "uvicorn:main"
+
+[project.optional-dependencies]
+inference = [
+    "openai>=1.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "openai>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["server*", "models*", "client*"]
