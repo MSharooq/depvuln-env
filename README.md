@@ -2,7 +2,7 @@
 title: DepVuln Triage Environment
 emoji: 🔒
 colorFrom: red
-colorTo: orange
+colorTo: red
 sdk: docker
 app_port: 7860
 tags:
