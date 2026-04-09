@@ -176,6 +176,42 @@ def parse_llm_response(text: str) -> Dict[str, Any]:
     return {"command": "submit_report"}
 
 
+def _validate_env_vars() -> None:
+    """Ensure required environment variables are present.
+
+    Exits early with a clear message if critical vars are missing.
+    """
+    missing = []
+    if not API_KEY:
+        missing.append("HF_TOKEN or API_KEY")
+    if not (IMAGE_NAME or os.getenv("ENV_URL")):
+        missing.append("ENV_URL or IMAGE_NAME")
+
+    if missing:
+        raise SystemExit(f"Missing required env vars: {', '.join(missing)}")
+
+
+def _check_env_reachable(env_url: str, timeout: int = 5) -> None:
+    """Quickly POST to /reset to ensure the environment is reachable.
+
+    Uses only the standard library so no extra deps are required.
+    Raises SystemExit if not reachable.
+    """
+    try:
+        from urllib.request import Request, urlopen
+
+        url = env_url.rstrip("/") + "/reset"
+        req = Request(url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "getcode", lambda: None)()
+            if status is None:
+                status = 200
+            if status != 200:
+                raise RuntimeError(f"Unexpected status code: {status}")
+    except Exception as exc:  # pragma: no cover - network check
+        raise SystemExit(f"Env not reachable at {env_url}: {exc}")
+
+
 def get_model_action(
     client: OpenAI,
     observation_text: str,
@@ -228,17 +264,7 @@ def dict_to_action(d: Dict[str, Any]) -> DepVulnAction:
 
 async def run_task(client: OpenAI, task_name: str) -> float:
     """Run a single task and return the final score."""
-    # Support both Docker image and direct URL connection
-    env_url = os.getenv("ENV_URL")
-    if env_url:
-        env = DepVulnEnv(base_url=env_url)
-    elif IMAGE_NAME:
-        env = await DepVulnEnv.from_docker_image(IMAGE_NAME)
-    else:
-        raise RuntimeError(
-            "Set either IMAGE_NAME or ENV_URL environment variable"
-        )
-
+    # Prepare bookkeeping and emit START early so failures still produce an END line
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
@@ -247,7 +273,24 @@ async def run_task(client: OpenAI, task_name: str) -> float:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
+        # Support both Docker image and direct URL connection
+        env_url = os.getenv("ENV_URL")
+
+        # Initialize env with reachability check for HTTP mode
+        try:
+            if env_url:
+                _check_env_reachable(env_url)
+                env = DepVulnEnv(base_url=env_url)
+            elif IMAGE_NAME:
+                env = await DepVulnEnv.from_docker_image(IMAGE_NAME)
+            else:
+                raise RuntimeError("Set either IMAGE_NAME or ENV_URL environment variable")
+        except Exception as exc:
+            print(f"[DEBUG] Failed to initialize environment for {task_name}: {exc}", flush=True)
+            raise
+
         async with env:
+            # Reset the environment (may raise)
             result = await env.reset(task=task_name)
             obs_text = format_observation(result.observation)
             history: List[Dict[str, str]] = []
@@ -261,7 +304,19 @@ async def run_task(client: OpenAI, task_name: str) -> float:
                 action_dict = get_model_action(client, obs_text, history)
                 action = dict_to_action(action_dict)
 
-                result = await env.step(action)
+                # Attempt the step; on failure, log a STEP with error and abort
+                try:
+                    result = await env.step(action)
+                except Exception as exc:
+                    error_msg = str(exc)
+                    action_str = json.dumps(action_dict, separators=(",", ":"))
+                    rewards.append(0.0)
+                    steps_taken = step
+                    log_step(step=step, action=action_str, reward=0.0, done=True, error=error_msg)
+                    score = 0.0
+                    success = False
+                    break
+
                 obs = result.observation
 
                 reward = result.reward or 0.0
@@ -300,6 +355,9 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report results."""
+    # Validate required environment variables early
+    _validate_env_vars()
+
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     scores = {}
@@ -317,4 +375,11 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except SystemExit as se:
+        print(f"[FATAL] {se}", flush=True)
+        raise
+    except Exception as e:
+        print(f"[FATAL] inference failed: {e}", flush=True)
+        raise
