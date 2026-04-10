@@ -27,8 +27,15 @@ from models import DepVulnAction
 from client import DepVulnEnv
 
 IMAGE_NAME = os.getenv("IMAGE_NAME")
+<<<<<<< HEAD
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+=======
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+# Require API_BASE_URL to be provided by the evaluation harness (LiteLLM proxy).
+# Do NOT fall back to a public default so we don't bypass the provided proxy.
+API_BASE_URL = os.getenv("API_BASE_URL")
+>>>>>>> 909031a (changes for inference)
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = "depvuln"
 TEMPERATURE = 0.3
@@ -182,8 +189,12 @@ def _validate_env_vars() -> None:
     Exits early with a clear message if critical vars are missing.
     """
     missing = []
-    if not API_KEY:
-        missing.append("HF_TOKEN or API_KEY")
+    # Require the LLM proxy base URL (provided by the organizer) to ensure
+    # requests go through the LiteLLM proxy instead of a public endpoint.
+    if not API_BASE_URL:
+        missing.append("API_BASE_URL (the LiteLLM proxy URL)")
+
+    # Ensure we can reach the environment either via ENV_URL or local image
     if not (IMAGE_NAME or os.getenv("ENV_URL")):
         missing.append("ENV_URL or IMAGE_NAME")
 
