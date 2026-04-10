@@ -218,13 +218,14 @@ def get_model_action(
     history: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     """Call the LLM and parse its response into an action dict."""
+    model = os.environ.get("MODEL_NAME", MODEL_NAME)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
     messages.append({"role": "user", "content": observation_text})
 
     try:
         completion = client.chat.completions.create(
-            model=MODEL_NAME,
+            model=model,
             messages=messages,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
@@ -270,7 +271,7 @@ async def run_task(client: OpenAI, task_name: str) -> float:
     score = 0.0
     success = False
 
-    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=os.environ.get("MODEL_NAME", MODEL_NAME))
 
     try:
         # Support both Docker image and direct URL connection
