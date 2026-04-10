@@ -355,19 +355,10 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report results."""
-    # Validate required environment variables early
-    _validate_env_vars()
-
-    # Read dynamically at execution time in case env vars were injected after module import
-    api_base_url = os.environ.get("API_BASE_URL", API_BASE_URL)
-    api_key = os.environ.get("API_KEY", API_KEY)
-    
-    # Check explicitly as requested by validator prompt
-    if "API_KEY" in os.environ and "API_BASE_URL" in os.environ:
-        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
-    else:
-        # Fallback for local execution
-        client = OpenAI(base_url=api_base_url, api_key=api_key)
+    client = OpenAI(
+        base_url=os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1"),
+        api_key=os.environ.get("API_KEY", os.environ.get("HF_TOKEN", "")),
+    )
 
     scores = {}
     for task_name in TASKS:
@@ -384,11 +375,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except SystemExit as se:
-        print(f"[FATAL] {se}", flush=True)
-        raise
-    except Exception as e:
-        print(f"[FATAL] inference failed: {e}", flush=True)
-        raise
+    asyncio.run(main())
