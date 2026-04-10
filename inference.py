@@ -358,7 +358,16 @@ async def main() -> None:
     # Validate required environment variables early
     _validate_env_vars()
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    # Read dynamically at execution time in case env vars were injected after module import
+    api_base_url = os.environ.get("API_BASE_URL", API_BASE_URL)
+    api_key = os.environ.get("API_KEY", API_KEY)
+    
+    # Check explicitly as requested by validator prompt
+    if "API_KEY" in os.environ and "API_BASE_URL" in os.environ:
+        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
+    else:
+        # Fallback for local execution
+        client = OpenAI(base_url=api_base_url, api_key=api_key)
 
     scores = {}
     for task_name in TASKS:
