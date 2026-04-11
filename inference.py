@@ -27,15 +27,10 @@ from models import DepVulnAction
 from client import DepVulnEnv
 
 IMAGE_NAME = os.getenv("IMAGE_NAME")
-<<<<<<< HEAD
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-=======
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 # Require API_BASE_URL to be provided by the evaluation harness (LiteLLM proxy).
 # Do NOT fall back to a public default so we don't bypass the provided proxy.
 API_BASE_URL = os.getenv("API_BASE_URL")
->>>>>>> 909031a (changes for inference)
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = "depvuln"
 TEMPERATURE = 0.3
@@ -368,8 +363,8 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 async def main() -> None:
     """Run all tasks and report results."""
     client = OpenAI(
-        base_url=os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1"),
-        api_key=os.environ.get("API_KEY", os.environ.get("HF_TOKEN", "")),
+        base_url=os.environ.get("API_BASE_URL"),
+        api_key=os.environ.get("HF_TOKEN", os.environ.get("API_KEY", "")),
     )
 
     scores = {}
