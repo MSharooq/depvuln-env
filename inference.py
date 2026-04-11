@@ -30,6 +30,7 @@ from client import DepVulnEnv
 BENCHMARK = "depvuln"
 TEMPERATURE = 0.3
 MAX_TOKENS = 800
+DEFAULT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
 # Tasks to run
 TASKS = ["single_cve", "multi_cve_triage", "dependency_hell"]
@@ -180,8 +181,6 @@ def _validate_env_vars() -> None:
         missing.append("API_BASE_URL")
     if "API_KEY" not in os.environ and "HF_TOKEN" not in os.environ:
         missing.append("API_KEY (or HF_TOKEN)")
-    if "MODEL_NAME" not in os.environ:
-        missing.append("MODEL_NAME")
     if not (os.environ.get("IMAGE_NAME") or os.environ.get("ENV_URL")):
         missing.append("ENV_URL or IMAGE_NAME")
 
@@ -358,15 +357,12 @@ async def main() -> None:
     # Validate environment variables exactly as requested by the harness
     _validate_env_vars()
 
-    # Literal initialization as demanded by Phase 2 validation error message
+    # Use literal string for base_url as requested by validator.
+    # Prioritize API_KEY over HF_TOKEN in the direct assignment.
     api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    if "API_KEY" in os.environ and "API_BASE_URL" in os.environ:
-        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
-    else:
-        # Fallback to ensure local testing works if their injected names differ slightly
-        client = OpenAI(base_url=os.environ.get("API_BASE_URL"), api_key=api_key)
+    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=api_key)
 
-    model_name = os.environ.get("MODEL_NAME")
+    model_name = os.environ.get("MODEL_NAME") or DEFAULT_MODEL
 
     scores = {}
     for task_name in TASKS:
