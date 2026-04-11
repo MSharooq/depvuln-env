@@ -26,12 +26,7 @@ from openai import OpenAI
 from models import DepVulnAction
 from client import DepVulnEnv
 
-IMAGE_NAME = os.getenv("IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-# Require API_BASE_URL to be provided by the evaluation harness (LiteLLM proxy).
-# Do NOT fall back to a public default so we don't bypass the provided proxy.
-API_BASE_URL = os.getenv("API_BASE_URL")
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+# Constants
 BENCHMARK = "depvuln"
 TEMPERATURE = 0.3
 MAX_TOKENS = 800
@@ -179,18 +174,15 @@ def parse_llm_response(text: str) -> Dict[str, Any]:
 
 
 def _validate_env_vars() -> None:
-    """Ensure required environment variables are present.
-
-    Exits early with a clear message if critical vars are missing.
-    """
+    """Ensure required environment variables are present."""
     missing = []
-    # Require the LLM proxy base URL (provided by the organizer) to ensure
-    # requests go through the LiteLLM proxy instead of a public endpoint.
-    if not API_BASE_URL:
-        missing.append("API_BASE_URL (the LiteLLM proxy URL)")
-
-    # Ensure we can reach the environment either via ENV_URL or local image
-    if not (IMAGE_NAME or os.getenv("ENV_URL")):
+    if "API_BASE_URL" not in os.environ:
+        missing.append("API_BASE_URL")
+    if "API_KEY" not in os.environ and "HF_TOKEN" not in os.environ:
+        missing.append("API_KEY (or HF_TOKEN)")
+    if "MODEL_NAME" not in os.environ:
+        missing.append("MODEL_NAME")
+    if not (os.environ.get("IMAGE_NAME") or os.environ.get("ENV_URL")):
         missing.append("ENV_URL or IMAGE_NAME")
 
     if missing:
@@ -220,39 +212,34 @@ def _check_env_reachable(env_url: str, timeout: int = 5) -> None:
 
 def get_model_action(
     client: OpenAI,
+    model_name: str,
     observation_text: str,
     history: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     """Call the LLM and parse its response into an action dict."""
-    model = os.environ.get("MODEL_NAME", MODEL_NAME)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
     messages.append({"role": "user", "content": observation_text})
 
-    try:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        raw = (completion.choices[0].message.content or "").strip()
-        action_dict = parse_llm_response(raw)
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+        stream=False,
+    )
+    raw = (completion.choices[0].message.content or "").strip()
+    action_dict = parse_llm_response(raw)
 
-        # Record in history for context
-        history.append({"role": "user", "content": observation_text})
-        history.append({"role": "assistant", "content": raw})
+    # Record in history for context
+    history.append({"role": "user", "content": observation_text})
+    history.append({"role": "assistant", "content": raw})
 
-        # Keep history manageable (last 10 exchanges)
-        if len(history) > 20:
-            history[:] = history[-20:]
+    # Keep history manageable (last 10 exchanges)
+    if len(history) > 20:
+        history[:] = history[-20:]
 
-        return action_dict
-
-    except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return {"command": "submit_report"}
+    return action_dict
 
 
 def dict_to_action(d: Dict[str, Any]) -> DepVulnAction:
@@ -269,7 +256,7 @@ def dict_to_action(d: Dict[str, Any]) -> DepVulnAction:
     )
 
 
-async def run_task(client: OpenAI, task_name: str) -> float:
+async def run_task(client: OpenAI, model_name: str, task_name: str) -> float:
     """Run a single task and return the final score."""
     # Prepare bookkeeping and emit START early so failures still produce an END line
     rewards: List[float] = []
@@ -277,19 +264,20 @@ async def run_task(client: OpenAI, task_name: str) -> float:
     score = 0.0
     success = False
 
-    log_start(task=task_name, env=BENCHMARK, model=os.environ.get("MODEL_NAME", MODEL_NAME))
+    log_start(task=task_name, env=BENCHMARK, model=model_name)
 
     try:
         # Support both Docker image and direct URL connection
-        env_url = os.getenv("ENV_URL")
+        env_url = os.environ.get("ENV_URL")
+        image_name = os.environ.get("IMAGE_NAME")
 
         # Initialize env with reachability check for HTTP mode
         try:
             if env_url:
                 _check_env_reachable(env_url)
                 env = DepVulnEnv(base_url=env_url)
-            elif IMAGE_NAME:
-                env = await DepVulnEnv.from_docker_image(IMAGE_NAME)
+            elif image_name:
+                env = await DepVulnEnv.from_docker_image(image_name)
             else:
                 raise RuntimeError("Set either IMAGE_NAME or ENV_URL environment variable")
         except Exception as exc:
@@ -308,7 +296,7 @@ async def run_task(client: OpenAI, task_name: str) -> float:
                 if result.done:
                     break
 
-                action_dict = get_model_action(client, obs_text, history)
+                action_dict = get_model_action(client, model_name, obs_text, history)
                 action = dict_to_action(action_dict)
 
                 # Attempt the step; on failure, log a STEP with error and abort
@@ -355,6 +343,11 @@ async def run_task(client: OpenAI, task_name: str) -> float:
         success = False
 
     finally:
+        try:
+            if 'env' in locals():
+                await env.close()
+        except Exception as e:
+            print(f"[DEBUG] env.close() error: {e}", flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score
@@ -362,16 +355,22 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report results."""
+    # Validate environment variables exactly as requested by the harness
+    _validate_env_vars()
+
+    # Literal initialization as demanded by Phase 2 validation error message
+    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
     if "API_KEY" in os.environ and "API_BASE_URL" in os.environ:
         client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
     else:
-        # Fallback for local testing
-        api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+        # Fallback to ensure local testing works if their injected names differ slightly
         client = OpenAI(base_url=os.environ.get("API_BASE_URL"), api_key=api_key)
+
+    model_name = os.environ.get("MODEL_NAME")
 
     scores = {}
     for task_name in TASKS:
-        score = await run_task(client, task_name)
+        score = await run_task(client, model_name, task_name)
         scores[task_name] = score
 
     print("\n" + "=" * 50, flush=True)
