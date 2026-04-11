@@ -362,10 +362,12 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report results."""
-    client = OpenAI(
-        base_url=os.environ.get("API_BASE_URL"),
-        api_key=os.environ.get("HF_TOKEN", os.environ.get("API_KEY", "")),
-    )
+    if "API_KEY" in os.environ and "API_BASE_URL" in os.environ:
+        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
+    else:
+        # Fallback for local testing
+        api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+        client = OpenAI(base_url=os.environ.get("API_BASE_URL"), api_key=api_key)
 
     scores = {}
     for task_name in TASKS:
