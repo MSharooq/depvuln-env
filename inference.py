@@ -179,8 +179,8 @@ def _validate_env_vars() -> None:
     missing = []
     if "API_BASE_URL" not in os.environ:
         missing.append("API_BASE_URL")
-    if "API_KEY" not in os.environ and "HF_TOKEN" not in os.environ:
-        missing.append("API_KEY (or HF_TOKEN)")
+    if "API_KEY" not in os.environ:
+        missing.append("API_KEY")
     if not (os.environ.get("IMAGE_NAME") or os.environ.get("ENV_URL")):
         missing.append("ENV_URL or IMAGE_NAME")
 
@@ -357,10 +357,13 @@ async def main() -> None:
     # Validate environment variables exactly as requested by the harness
     _validate_env_vars()
 
-    # Use literal string for base_url as requested by validator.
-    # Prioritize API_KEY over HF_TOKEN in the direct assignment.
-    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=api_key)
+    # Use exact literal string requested by the validator error message.
+    # We remove HF_TOKEN fallback to ensure it DOES NOT accidentally use personal credentials
+    # and bypass the LiteLLM proxy.
+    client = OpenAI(
+        base_url=os.environ["API_BASE_URL"],
+        api_key=os.environ["API_KEY"]
+    )
 
     model_name = os.environ.get("MODEL_NAME") or DEFAULT_MODEL
 
